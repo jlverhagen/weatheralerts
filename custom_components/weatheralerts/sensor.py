@@ -237,7 +237,8 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                         await self.async_refresh()
                         if (not self.last_update_success or
                                 not self.data or
-                                self.data.get("error", [{}])[0].get("type") != "success"):
+                                not self.data.get("error") or
+                                self.data["error"][0].get("type") != "success"):
                             raise RuntimeError("New coverage refresh failed")
                     except BaseException:
                         # CancelledError is not an Exception. Roll back even when
