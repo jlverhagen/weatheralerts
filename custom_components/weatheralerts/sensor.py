@@ -212,10 +212,12 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                 old_feedid = self.feedid
                 old_tracking = self._alert_tracking_list
                 old_good = self._last_good_data
+                old_errors = self._last_error
                 old_data = self.data
                 self.feedid = new_feedid
                 self._alert_tracking_list = []
                 self._last_good_data = None
+                self._last_error = []
                 try:
                     await self.async_refresh()
                     if (not self.last_update_success or
@@ -226,11 +228,14 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     self.feedid = old_feedid
                     self._alert_tracking_list = old_tracking
                     self._last_good_data = old_good
+                    self._last_error = old_errors
                     self.async_set_updated_data(old_data)
                     raise
                 self._location_status = "current"
+                self.async_update_listeners()
             except Exception:
                 self._location_status = "resolution_failed"
+                self.async_update_listeners()
                 _LOGGER.warning("WeatherAlerts location update failed for %s", source, exc_info=True)
                 raise
 
