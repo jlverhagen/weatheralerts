@@ -3,6 +3,13 @@
 DOMAIN = "weatheralerts"
 VERSION = "2026.5.3"
 
+# Dynamic location source configuration (existing entries default to static)
+CONF_LOCATION_MODE = "location_mode"
+CONF_LOCATION_ENTITY = "location_entity"
+LOCATION_MODE_STATIC = "static"
+LOCATION_MODE_HOME = "home"
+LOCATION_MODE_TRACKER = "tracker"
+
 # Configuration keys
 CONF_ZONE = "zone"
 CONF_COUNTY = "county"
