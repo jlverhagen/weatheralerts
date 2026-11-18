@@ -211,10 +211,20 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     if not new_feedid:
                         raise ValueError("NWS points lookup returned empty coverage")
                     if new_feedid == self.feedid:
+                        # A recovered tracker still needs a successful NWS
+                        # refresh before its old coverage can be called current.
+                        was_unavailable = not self._location_available
                         self._location_available = True
-                        if self.data is not None and self.data.get("count") is None:
-                            await self.async_refresh()
-                        self._location_available = True
+                        try:
+                            if was_unavailable or self.data is None or self.data.get("count") is None:
+                                await self.async_refresh()
+                                if (not self.last_update_success or not self.data or
+                                        not self.data.get("error") or
+                                        self.data["error"][0].get("type") != "success"):
+                                    raise RuntimeError("NWS refresh failed after GPS recovery")
+                        except BaseException:
+                            self._location_available = False
+                            raise
                         self._location_status = "current"
                         self.async_update_listeners()
                         return
