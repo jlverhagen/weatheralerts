@@ -12,6 +12,7 @@ from homeassistant import config_entries
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .nws_client import SharedNwsAlertClient
+from .location import NwsPointResolver
 from .frontend import async_register_frontend
 
 from .const import (
@@ -97,6 +98,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     domain_data = hass.data.setdefault(DOMAIN, {})
     if "shared_nws_client" not in domain_data:
         domain_data["shared_nws_client"] = SharedNwsAlertClient(async_get_clientsession(hass))
+    if "point_resolver" not in domain_data:
+        domain_data["point_resolver"] = NwsPointResolver(async_get_clientsession(hass))
     _LOGGER.debug("weatheralerts: forwarding setup to platforms: %s", PLATFORMS)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.debug("weatheralerts: platform setup complete")
@@ -193,6 +196,9 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("weatheralerts: async_unload_entry called for %s", entry.entry_id)
+    coordinator = hass.data.get(DOMAIN, {}).get('location_coordinators', {}).pop(entry.entry_id, None)
+    if coordinator is not None:
+        await coordinator.async_stop_location_tracking()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
