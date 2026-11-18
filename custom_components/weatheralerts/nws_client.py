@@ -53,12 +53,11 @@ class SharedNwsAlertClient:
         if task is None:
             task = asyncio.create_task(self._fetch(key, timeout))
             self._inflight[key] = task
-            task.add_done_callback(lambda finished, k=key: self._clear_inflight(k, finished))
-        return await asyncio.shield(task)
-
-    def _clear_inflight(self, key: str, task: asyncio.Task) -> None:
-        if self._inflight.get(key) is task:
-            self._inflight.pop(key, None)
+        try:
+            return await asyncio.shield(task)
+        finally:
+            if task.done() and self._inflight.get(key) is task:
+                self._inflight.pop(key, None)
 
     async def _fetch(self, key: str, timeout: float) -> dict[str, Any]:
         async with asyncio.timeout(timeout):
