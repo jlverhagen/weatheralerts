@@ -17,6 +17,8 @@ from .frontend import async_register_frontend
 
 from .const import (
     DOMAIN,
+    CONF_LOCATION_MODE,
+    LOCATION_MODE_STATIC,
     CONF_ZONE,
     CONF_COUNTY,
     CONF_ZONE_NAME,
@@ -108,6 +110,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     _LOGGER.debug("weatheralerts: _async_update_listener triggered for %s", entry.entry_id)
+
+    if entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC) != LOCATION_MODE_STATIC:
+        # Preserve dynamic source metadata. The static entry normalization
+        # below intentionally rebuilds data and must not run for GPS entries.
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
 
     # Gather current zone and naming options, respecting blank (deletion) values
     if CONF_ZONE in entry.options:
