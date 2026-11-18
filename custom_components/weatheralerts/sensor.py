@@ -18,6 +18,8 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
+from .nws_client import SharedNwsAlertClient, NwsHttpError
+
 from .const import (
     DOMAIN,
     ALERTS_API,
@@ -168,7 +170,7 @@ def _deduplicate_alerts_by_description(alerts):
 class WeatherAlertsCoordinator(DataUpdateCoordinator):
     """Coordinator for fetching weather alerts and tracking alert_tracking."""
 
-    def __init__(self, hass, session, feedid, config_entry_id, update_interval):
+    def __init__(self, hass, session, feedid, config_entry_id, update_interval, shared_client=None):
         super().__init__(
             hass,
             _LOGGER,
@@ -176,6 +178,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
             update_interval=update_interval,
         )
         self.session = session
+        self.shared_client = shared_client
         self.feedid = feedid
         self.config_entry_id = config_entry_id
         self._last_good_data = None
@@ -196,78 +199,86 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                                    entry.data.get(CONF_DEDUPLICATE_ALERTS_BY_ID, DEFAULT_DEDUPLICATE_ALERTS_BY_ID)) if entry else DEFAULT_DEDUPLICATE_ALERTS_BY_ID
 
         try:
-            async with async_timeout.timeout(timeout_seconds):
-                alerts_url = ALERTS_API.format(self.feedid)
-                _LOGGER.debug("weatheralerts: Fetching Alerts URL: %s", alerts_url)
-                response = await self.session.get(alerts_url, headers=HEADERS)
-                _LOGGER.debug("weatheralerts: HTTP status code: %s", response.status)
-                if response.status != 200:
-                    error_msg = f"Possible API outage (status {response.status})"
-                    current_entry = {
-                        "type": "http_error",
-                        "status": response.status,
-                        "message": error_msg,
-                        "timestamp": dt_util.now().isoformat(),
+            if self.shared_client is not None:
+                try:
+                    data = await self.shared_client.fetch_alerts(self.feedid, timeout=timeout_seconds)
+                    http_status = 200
+                except NwsHttpError as exc:
+                    http_status = exc.status
+            else:
+                async with async_timeout.timeout(timeout_seconds):
+                    alerts_url = ALERTS_API.format(self.feedid)
+                    response = await self.session.get(alerts_url, headers=HEADERS)
+                    http_status = response.status
+                    if http_status == 200:
+                        data = await response.json()
+            if http_status != 200:
+            if http_status != 200:
+                error_msg = f"Possible API outage (status {http_status})"
+                current_entry = {
+                    "type": "http_error",
+                    "status": http_status,
+                    "message": error_msg,
+                    "timestamp": dt_util.now().isoformat(),
+                }
+                previous_entry = next((e for e in reversed(self._last_error) if e.get("type") == "success"), None)
+                update_error = [current_entry]
+                if previous_entry:
+                    update_error.append(previous_entry)
+                if self._last_good_data:
+                    data = dict(self._last_good_data)
+                    # --- prune stale alerts when falling back to previous data ---
+                    try:
+                        now = dt_util.now()
+                        fallback_delete_buffer = timedelta(minutes=60)
+
+                        alerts = list(data.get("alerts", []))
+                        kept_alerts = []
+                        kept_ids = set()
+
+                        for a in alerts:
+                            exp = a.get("expires")
+                            drop = False
+                            if exp and exp != "null":
+                                try:
+                                    exp_dt = dt_util.parse_datetime(exp)
+                                    if exp_dt and now >= (exp_dt + fallback_delete_buffer):
+                                        drop = True
+                                except Exception:
+                                    # If we can't parse, keep it rather than accidentally dropping
+                                    pass
+
+                            if not drop:
+                                kept_alerts.append(a)
+                                if a.get("id"):
+                                    kept_ids.add(a["id"])
+
+                        # Replace with pruned alerts, update count + stats
+                        data["alerts"] = kept_alerts
+                        data["count"] = len(kept_alerts)
+                        data["alert_stats"] = _compute_active_alert_stats(kept_alerts)
+
+                        # Drop any alert_tracking rows for removed alerts
+                        tracking = list(data.get("alert_tracking", []))
+                        data["alert_tracking"] = [t for t in tracking if t.get("id") in kept_ids]
+
+                    except Exception as e:
+                        _LOGGER.debug("weatheralerts: prune-on-fallback failed: %s", e)
+                    # --- end prune block ---
+                    data["error"] = update_error
+                    self._last_error = update_error
+                    return data
+                else:
+                    return {
+                        "alerts": [],
+                        "count": 0,
+                        "alert_stats": {},
+                        "integration": "weatheralerts",
+                        "zone": self.feedid,
+                        "alert_tracking": self._alert_tracking_list,
+                        "error": update_error,
                     }
-                    previous_entry = next((e for e in reversed(self._last_error) if e.get("type") == "success"), None)
-                    update_error = [current_entry]
-                    if previous_entry:
-                        update_error.append(previous_entry)
-                    if self._last_good_data:
-                        data = dict(self._last_good_data)
-                        # --- prune stale alerts when falling back to previous data ---
-                        try:
-                            now = dt_util.now()
-                            fallback_delete_buffer = timedelta(minutes=60)
-
-                            alerts = list(data.get("alerts", []))
-                            kept_alerts = []
-                            kept_ids = set()
-
-                            for a in alerts:
-                                exp = a.get("expires")
-                                drop = False
-                                if exp and exp != "null":
-                                    try:
-                                        exp_dt = dt_util.parse_datetime(exp)
-                                        if exp_dt and now >= (exp_dt + fallback_delete_buffer):
-                                            drop = True
-                                    except Exception:
-                                        # If we can't parse, keep it rather than accidentally dropping
-                                        pass
-
-                                if not drop:
-                                    kept_alerts.append(a)
-                                    if a.get("id"):
-                                        kept_ids.add(a["id"])
-
-                            # Replace with pruned alerts, update count + stats
-                            data["alerts"] = kept_alerts
-                            data["count"] = len(kept_alerts)
-                            data["alert_stats"] = _compute_active_alert_stats(kept_alerts)
-
-                            # Drop any alert_tracking rows for removed alerts
-                            tracking = list(data.get("alert_tracking", []))
-                            data["alert_tracking"] = [t for t in tracking if t.get("id") in kept_ids]
-
-                        except Exception as e:
-                            _LOGGER.debug("weatheralerts: prune-on-fallback failed: %s", e)
-                        # --- end prune block ---
-                        data["error"] = update_error
-                        self._last_error = update_error
-                        return data
-                    else:
-                        return {
-                            "alerts": [],
-                            "count": 0,
-                            "alert_stats": {},
-                            "integration": "weatheralerts",
-                            "zone": self.feedid,
-                            "alert_tracking": self._alert_tracking_list,
-                            "error": update_error,
-                        }
-                data = await response.json()
-                _LOGGER.debug("weatheralerts: Fetched data keys: %s", list(data.keys()))
+            _LOGGER.debug("weatheralerts: Fetched data keys: %s", list(data.keys()))
         except Exception as err:
             error_msg = f"Update failed: {err}"
             current_entry = {
@@ -636,8 +647,10 @@ async def async_setup_entry(hass, entry, add_entities):
     session = async_get_clientsession(hass)
     update_interval_sec = entry.options.get(CONF_UPDATE_INTERVAL, entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
     update_interval = timedelta(seconds=update_interval_sec)
+    shared_client = hass.data[DOMAIN]["shared_nws_client"]
     coordinator = WeatherAlertsCoordinator(
-        hass, session, feedid, entry.entry_id, update_interval=update_interval
+        hass, session, feedid, entry.entry_id, update_interval=update_interval,
+        shared_client=shared_client,
     )
     await coordinator.async_config_entry_first_refresh()
     _LOGGER.debug("weatheralerts: async_setup_entry (sensor.py): finished first refresh")
