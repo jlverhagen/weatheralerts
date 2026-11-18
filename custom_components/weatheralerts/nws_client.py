@@ -53,6 +53,12 @@ class SharedNwsAlertClient:
         if task is None:
             task = asyncio.create_task(self._fetch(key, timeout))
             self._inflight[key] = task
+            # A cancelled waiter must not leave a completed task cached as
+            # in-flight forever. The request itself remains shielded/shared.
+            task.add_done_callback(
+                lambda completed, coverage=key: self._inflight.pop(coverage, None)
+                if self._inflight.get(coverage) is completed else None
+            )
         try:
             return await asyncio.shield(task)
         finally:
