@@ -15,6 +15,11 @@ from homeassistant.helpers import translation
 from .const import (
     DOMAIN,
     CONF_ZONE,
+    CONF_LOCATION_MODE,
+    CONF_LOCATION_ENTITY,
+    LOCATION_MODE_STATIC,
+    LOCATION_MODE_HOME,
+    LOCATION_MODE_TRACKER,
     CONF_COUNTY,
     CONF_ZONE_NAME,
     CONF_NAME,
@@ -150,8 +155,43 @@ class WeatheralertsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._zone = None
         self._county = None
         self._marine = None
+        self._location_mode = LOCATION_MODE_STATIC
+        self._location_entity = None
 
     async def async_step_user(self, user_input=None):
+        if user_input is not None:
+            mode = user_input[CONF_LOCATION_MODE]
+            self._location_mode = mode
+            if mode == LOCATION_MODE_STATIC:
+                return await self.async_step_static_location()
+            if mode == LOCATION_MODE_HOME:
+                self._location_entity = "zone.home"
+                return await self.async_step_update_options()
+            return await self.async_step_tracker()
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({
+                vol.Required(CONF_LOCATION_MODE, default=LOCATION_MODE_STATIC):
+                    vol.In([LOCATION_MODE_STATIC, LOCATION_MODE_HOME, LOCATION_MODE_TRACKER]),
+            }),
+        )
+
+    async def async_step_tracker(self, user_input=None):
+        errors = {}
+        if user_input is not None:
+            entity_id = user_input[CONF_LOCATION_ENTITY].strip()
+            if not entity_id.startswith("device_tracker.") or self.hass.states.get(entity_id) is None:
+                errors[CONF_LOCATION_ENTITY] = "invalid_location_entity"
+            else:
+                self._location_entity = entity_id
+                return await self.async_step_update_options()
+        trackers = sorted(s.entity_id for s in self.hass.states.async_all("device_tracker"))
+        schema = vol.Schema({vol.Required(CONF_LOCATION_ENTITY): vol.In(trackers)}) if trackers else vol.Schema({vol.Required(CONF_LOCATION_ENTITY): str})
+        if not trackers:
+            errors["base"] = "no_trackers"
+        return self.async_show_form(step_id="tracker", data_schema=schema, errors=errors)
+
+    async def async_step_static_location(self, user_input=None):
         errors = {}
         zone_home = self.hass.states.get("zone.home")
         default_lat = str(zone_home.attributes.get("latitude", "")) if zone_home else ""
@@ -363,6 +403,28 @@ class WeatheralertsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             elif timeout >= update - TIMEOUT_BUFFER:
                 errors[CONF_API_TIMEOUT] = "invalid_api_timeout_buffer"
             else:
+                if self._location_mode != LOCATION_MODE_STATIC:
+                    source = self._location_entity or "zone.home"
+                    clean_source = _clean_for_entity_id(source)
+                    friendly_name = f"NWS ({source})"
+                    await self.async_set_unique_id(f"{DOMAIN}_dynamic_{clean_source}")
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=friendly_name,
+                        data={
+                            CONF_LOCATION_MODE: self._location_mode,
+                            CONF_LOCATION_ENTITY: source,
+                            CONF_NAME: friendly_name,
+                            CONF_ENTITY_NAME: f"weatheralerts_{clean_source}",
+                            CONF_ZONE: "",
+                            CONF_COUNTY: "",
+                            CONF_MARINE_ZONES: "",
+                            CONF_UPDATE_INTERVAL: update,
+                            CONF_API_TIMEOUT: timeout,
+                            CONF_DEDUPLICATE_ALERTS_BY_ID: deduplicate_by_id,
+                            CONF_DEDUPLICATE_ALERTS: deduplicate,
+                        },
+                    )
                 # Construct entity
                 parts = [self._zone]
                 if self._county:
