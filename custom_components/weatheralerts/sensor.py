@@ -234,6 +234,13 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                                 self._location_available = False
                             raise
                         if location_epoch != self._location_epoch:
+                            # A completed refresh can race with the tracker
+                            # becoming unavailable; suppress its stale count.
+                            self._location_available = False
+                            if self.data is not None:
+                                stale = dict(self.data)
+                                stale["count"] = None
+                                self.async_set_updated_data(stale)
                             return
                         self._location_status = "current"
                         self.async_update_listeners()
