@@ -105,6 +105,7 @@ def test_reject_noncanonical_nws_coverage_urls():
         "https://api.weather.gov:444/zones/forecast/WIZ038",
         "https://user@api.weather.gov/zones/forecast/WIZ038",
         "https://api.weather.gov:bad/zones/forecast/WIZ038",
+        "https://[invalid/zones/forecast/WIZ038",
         "https://api.weather.gov/zones/forecast/WIZ038?extra=1",
         "https://api.weather.gov/zones/forecast/WIZ038#other",
     )
