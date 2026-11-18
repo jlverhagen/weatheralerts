@@ -112,3 +112,35 @@ def test_reject_noncanonical_nws_coverage_urls():
     )
     for url in invalid:
         assert _nws_code(url, "forecast") == ""
+
+
+@pytest.mark.asyncio
+async def test_failed_points_lookup_does_not_cache_failure():
+    response = Response({})
+    response.status = 503
+    session = Session(response)
+    resolver = NwsPointResolver(session)
+    with pytest.raises(ValueError, match="HTTP 503"):
+        await resolver.resolve(44.26, -88.41)
+    assert response.release.call_count == 1
+    session.response = Response({"properties": {
+        "forecastZone": "https://api.weather.gov/zones/forecast/WIZ038",
+        "county": "https://api.weather.gov/zones/county/WIC087",
+    }})
+    assert (await resolver.resolve(44.26, -88.41)).feedid == "WIZ038,WIC087"
+    assert len(session.urls) == 2
+
+
+@pytest.mark.asyncio
+async def test_points_response_without_supported_coverage_is_not_cached():
+    session = Session(Response({"properties": {
+        "forecastZone": "https://example.com/zones/forecast/WIZ038",
+    }}))
+    resolver = NwsPointResolver(session)
+    with pytest.raises(ValueError, match="supported alert coverage"):
+        await resolver.resolve(44.26, -88.41)
+    session.response = Response({"properties": {
+        "county": "https://api.weather.gov/zones/county/WIC087",
+    }})
+    assert (await resolver.resolve(44.26, -88.41)).feedid == "WIC087"
+    assert len(session.urls) == 2
