@@ -257,7 +257,19 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("WeatherAlerts location update failed for %s", source, exc_info=True)
                     raise
 
-        self._location_observer = LocationObserver(self.hass, source, update_location)
+        def location_unavailable():
+            self._location_status = "location_unavailable"
+            # Retain the last known alerts for diagnostics but do not claim
+            # their count represents the device's current position.
+            if self.data is not None:
+                stale = dict(self.data)
+                stale["count"] = None
+                self.async_set_updated_data(stale)
+            self.async_update_listeners()
+
+        self._location_observer = LocationObserver(
+            self.hass, source, update_location, on_unavailable=location_unavailable
+        )
         await self._location_observer.async_start()
 
     async def async_stop_location_tracking(self):
