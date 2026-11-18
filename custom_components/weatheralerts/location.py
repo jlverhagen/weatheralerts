@@ -88,8 +88,7 @@ class NwsPointResolver:
             # A superseded GPS event may cancel its waiter; clean up the
             # completed lookup independently of that cancelled coroutine.
             task.add_done_callback(
-                lambda completed, point=key: self._inflight.pop(point, None)
-                if self._inflight.get(point) is completed else None
+                lambda completed, point=key: self._complete_lookup(point, completed)
             )
         try:
             result = await asyncio.shield(task)
@@ -99,6 +98,21 @@ class NwsPointResolver:
         if self._inflight.get(key) is None:
             self._cache[key] = _CachedPoint(result, monotonic())
         return result
+
+    def _complete_lookup(
+        self, key: tuple[float, float], task: asyncio.Task[NwsCoverage]
+    ) -> None:
+        """Cache successful lookups even if their original waiter was cancelled."""
+        if self._inflight.get(key) is task:
+            self._inflight.pop(key, None)
+        if task.cancelled():
+            return
+        try:
+            coverage = task.result()
+        except Exception:
+            # The awaiting caller handles lookup failures. Retries remain possible.
+            return
+        self._cache[key] = _CachedPoint(coverage, monotonic())
 
     async def _fetch(self, lat: float, lon: float, timeout: float) -> NwsCoverage:
         async with asyncio.timeout(timeout):
