@@ -51,6 +51,10 @@ async def test_invalid_coordinates():
     resolver = NwsPointResolver(Session(Response({})))
     with pytest.raises(ValueError):
         await resolver.resolve(95, -88)
+    with pytest.raises(ValueError):
+        await resolver.resolve(float("nan"), -88)
+    with pytest.raises(ValueError):
+        await resolver.resolve(44, float("inf"))
 
 
 @pytest.mark.asyncio
@@ -64,3 +68,4 @@ def test_reject_untrusted_coverage_urls():
     assert _nws_code("https://example.com/zones/forecast/WIZ038", "forecast") == ""
     assert _nws_code("https://api.weather.gov/zones/county/WIC087", "county") == "WIC087"
     assert _nws_code("https://api.weather.gov/zones/forecast/WIZ038", "county") == ""
+    assert _nws_code("https://api.weather.gov/zones/forecast/WIC087", "forecast") == ""
