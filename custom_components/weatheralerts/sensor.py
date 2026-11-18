@@ -609,7 +609,8 @@ class WeatherAlertsSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
         last_state = await self.async_get_last_state()
         if last_state is not None:
             restored_alert_tracking = last_state.attributes.get("alert_tracking")
-            if restored_alert_tracking and isinstance(self.coordinator, WeatherAlertsCoordinator):
+            if (restored_alert_tracking and isinstance(self.coordinator, WeatherAlertsCoordinator)
+                    and self._dynamic_unique_id is None):
                 self.coordinator._alert_tracking_list = restored_alert_tracking
                 _LOGGER.info("weatheralerts: Restored alert_tracking list from last state")
         # ----------------------------------------------------------
@@ -629,7 +630,7 @@ class WeatherAlertsSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
     def _update_friendly_name(self):
         entry = self._get_config_entry()
         if entry:
-            self._attr_name = entry.data.get(CONF_NAME, self._attr_name)
+            self._attr_name = entry.options.get(CONF_NAME, entry.data.get(CONF_NAME, self._attr_name))
             _LOGGER.debug("weatheralerts: Updated friendly name to: %s", self._attr_name)
 
     @property
