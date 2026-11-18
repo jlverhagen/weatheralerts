@@ -5,9 +5,10 @@ import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 
 from homeassistant.core import Event, HomeAssistant, State, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class LocationObserver:
         self.entity_id = entity_id
         self._on_location = on_location
         self._unsubscribe: Callable[[], None] | None = None
+        self._unsubscribe_retry: Callable[[], None] | None = None
         self._task: asyncio.Task[None] | None = None
         self._last_coordinates: tuple[float, float] | None = None
         self._generation = 0
@@ -53,7 +55,16 @@ class LocationObserver:
         self._unsubscribe = async_track_state_change_event(
             self._hass, [self.entity_id], self._handle_state_change
         )
+        self._unsubscribe_retry = async_track_time_interval(
+            self._hass, self._retry_if_needed, timedelta(minutes=5)
+        )
         self._schedule(self._hass.states.get(self.entity_id))
+
+    @callback
+    def _retry_if_needed(self, now) -> None:
+        # Retry an unresolved location even if the GPS entity has not changed.
+        if self._last_coordinates is None:
+            self._schedule(self._hass.states.get(self.entity_id))
 
     @callback
     def _handle_state_change(self, event: Event) -> None:
@@ -91,6 +102,9 @@ class LocationObserver:
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        if self._unsubscribe_retry is not None:
+            self._unsubscribe_retry()
+            self._unsubscribe_retry = None
         self._generation += 1
         self._last_coordinates = None
         if self._task is not None:
