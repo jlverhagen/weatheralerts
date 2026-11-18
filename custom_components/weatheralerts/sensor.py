@@ -4,6 +4,7 @@ For more details about this integration, please refer to the documentation at
 https://github.com/custom-components/weatheralerts
 """
 import logging
+import asyncio
 import async_timeout
 import re
 from datetime import timedelta
@@ -192,6 +193,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
         self._alert_tracking_list = []
         self._location_status = 'static'
         self._location_observer = None
+        self._coverage_lock = asyncio.Lock()
         _LOGGER.info("weatheralerts: WeatherAlertsCoordinator initialized for feedid: %s", feedid)
 
     async def async_start_location_tracking(self, source, resolver):
@@ -200,58 +202,59 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
         self.async_update_listeners()
 
         async def update_location(lat, lon):
-            try:
-                coverage = await resolver.resolve(lat, lon)
-                new_feedid = coverage.feedid
-                if not new_feedid:
-                    raise ValueError("NWS points lookup returned empty coverage")
-                if new_feedid == self.feedid:
+            async with self._coverage_lock:
+                try:
+                    coverage = await resolver.resolve(lat, lon)
+                    new_feedid = coverage.feedid
+                    if not new_feedid:
+                        raise ValueError("NWS points lookup returned empty coverage")
+                    if new_feedid == self.feedid:
+                        self._location_status = "current"
+                        self.async_update_listeners()
+                        return
+
+                    # Save the current view until a new feed is successfully loaded.
+                    old_feedid = self.feedid
+                    old_tracking = self._alert_tracking_list
+                    old_good = self._last_good_data
+                    old_errors = self._last_error
+                    old_data = self.data
+                    # Verify the destination feed before changing the active
+                    # coordinator state. A failed fetch must not erase old alerts.
+                    timeout = next(
+                        (e.options.get(CONF_API_TIMEOUT, e.data.get(CONF_API_TIMEOUT, DEFAULT_API_TIMEOUT))
+                         for e in self.hass.config_entries.async_entries(DOMAIN)
+                         if e.entry_id == self.config_entry_id),
+                        DEFAULT_API_TIMEOUT,
+                    )
+                    if self.shared_client is not None:
+                        await self.shared_client.fetch_alerts(new_feedid, timeout=timeout)
+                    self.feedid = new_feedid
+                    self._alert_tracking_list = []
+                    self._last_good_data = None
+                    self._last_error = []
+                    try:
+                        await self.async_refresh()
+                        if (not self.last_update_success or
+                                not self.data or
+                                self.data.get("error", [{}])[0].get("type") != "success"):
+                            raise RuntimeError("New coverage refresh failed")
+                    except BaseException:
+                        # CancelledError is not an Exception. Roll back even when
+                        # a new GPS event supersedes an in-progress refresh.
+                        self.feedid = old_feedid
+                        self._alert_tracking_list = old_tracking
+                        self._last_good_data = old_good
+                        self._last_error = old_errors
+                        self.async_set_updated_data(old_data)
+                        raise
                     self._location_status = "current"
                     self.async_update_listeners()
-                    return
-
-                # Save the current view until a new feed is successfully loaded.
-                old_feedid = self.feedid
-                old_tracking = self._alert_tracking_list
-                old_good = self._last_good_data
-                old_errors = self._last_error
-                old_data = self.data
-                # Verify the destination feed before changing the active
-                # coordinator state. A failed fetch must not erase old alerts.
-                timeout = next(
-                    (e.options.get(CONF_API_TIMEOUT, e.data.get(CONF_API_TIMEOUT, DEFAULT_API_TIMEOUT))
-                     for e in self.hass.config_entries.async_entries(DOMAIN)
-                     if e.entry_id == self.config_entry_id),
-                    DEFAULT_API_TIMEOUT,
-                )
-                if self.shared_client is not None:
-                    await self.shared_client.fetch_alerts(new_feedid, timeout=timeout)
-                self.feedid = new_feedid
-                self._alert_tracking_list = []
-                self._last_good_data = None
-                self._last_error = []
-                try:
-                    await self.async_refresh()
-                    if (not self.last_update_success or
-                            not self.data or
-                            self.data.get("error", [{}])[0].get("type") != "success"):
-                        raise RuntimeError("New coverage refresh failed")
-                except BaseException:
-                    # CancelledError is not an Exception. Roll back even when
-                    # a new GPS event supersedes an in-progress refresh.
-                    self.feedid = old_feedid
-                    self._alert_tracking_list = old_tracking
-                    self._last_good_data = old_good
-                    self._last_error = old_errors
-                    self.async_set_updated_data(old_data)
+                except Exception:
+                    self._location_status = "resolution_failed"
+                    self.async_update_listeners()
+                    _LOGGER.warning("WeatherAlerts location update failed for %s", source, exc_info=True)
                     raise
-                self._location_status = "current"
-                self.async_update_listeners()
-            except Exception:
-                self._location_status = "resolution_failed"
-                self.async_update_listeners()
-                _LOGGER.warning("WeatherAlerts location update failed for %s", source, exc_info=True)
-                raise
 
         self._location_observer = LocationObserver(self.hass, source, update_location)
         await self._location_observer.async_start()
