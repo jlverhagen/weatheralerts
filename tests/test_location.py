@@ -98,6 +98,7 @@ async def test_cancelled_gps_waiter_does_not_leave_completed_lookup():
         await asyncio.sleep(0)
     assert not resolver._inflight
     assert (await resolver.resolve(44.26, -88.41)).feedid == "WIZ038,WIC087"
+    assert len(session.urls) == 1  # completed shielded request was cached
 
 
 def test_reject_noncanonical_nws_coverage_urls():
