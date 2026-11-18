@@ -69,3 +69,32 @@ def test_reject_untrusted_coverage_urls():
     assert _nws_code("https://api.weather.gov/zones/county/WIC087", "county") == "WIC087"
     assert _nws_code("https://api.weather.gov/zones/forecast/WIZ038", "county") == ""
     assert _nws_code("https://api.weather.gov/zones/forecast/WIC087", "forecast") == ""
+
+
+@pytest.mark.asyncio
+async def test_cancelled_gps_waiter_does_not_leave_completed_lookup():
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowSession(Session):
+        async def get(self, url, headers):
+            self.urls.append(url)
+            started.set()
+            await release.wait()
+            return self.response
+
+    session = SlowSession(Response({"properties": {
+        "forecastZone": "https://api.weather.gov/zones/forecast/WIZ038",
+        "county": "https://api.weather.gov/zones/county/WIC087",
+    }}))
+    resolver = NwsPointResolver(session)
+    waiter = asyncio.create_task(resolver.resolve(44.26, -88.41))
+    await started.wait()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    release.set()
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert not resolver._inflight
+    assert (await resolver.resolve(44.26, -88.41)).feedid == "WIZ038,WIC087"
