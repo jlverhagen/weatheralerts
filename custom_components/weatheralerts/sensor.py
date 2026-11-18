@@ -688,7 +688,7 @@ async def async_setup_entry(hass, entry, add_entities):
     marine_zones = entry.options.get(CONF_MARINE_ZONES, entry.data.get(CONF_MARINE_ZONES, ""))
     conf_name = entry.data.get(CONF_NAME, "NWS Weather Alerts")
     entity_name = entry.data.get(CONF_ENTITY_NAME)
-    parts = [zone]
+    parts = [zone] if zone else []
     if county:
         parts.append(county)
     if marine_zones:
@@ -710,7 +710,20 @@ async def async_setup_entry(hass, entry, add_entities):
         hass, session, feedid, entry.entry_id, update_interval=update_interval,
         shared_client=shared_client,
     )
-    await coordinator.async_config_entry_first_refresh()
+    if location_mode == LOCATION_MODE_STATIC:
+        await coordinator.async_config_entry_first_refresh()
+    else:
+        # Dynamic entries may have no initial zone/county. Do not request an
+        # empty NWS feed before the first GPS fix has resolved.
+        coordinator.async_set_updated_data({
+            "alerts": [],
+            "count": 0,
+            "alert_stats": {},
+            "integration": "weatheralerts",
+            "zone": "",
+            "alert_tracking": [],
+            "error": [],
+        })
     _LOGGER.debug("weatheralerts: async_setup_entry (sensor.py): finished first refresh")
     sensor = WeatherAlertsSensor(coordinator, entity_name, feedid)
     if location_mode != LOCATION_MODE_STATIC:
