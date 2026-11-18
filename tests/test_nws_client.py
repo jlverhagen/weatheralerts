@@ -84,3 +84,31 @@ async def test_different_coverage_is_independent():
 def test_empty_coverage_rejected():
     with pytest.raises(ValueError):
         SharedNwsAlertClient.coverage_key(" , ")
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_does_not_leave_completed_inflight_request():
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowSession(FakeSession):
+        async def get(self, url, headers):
+            self.calls.append(url)
+            started.set()
+            await release.wait()
+            return self.response
+
+    session = SlowSession()
+    client = SharedNwsAlertClient(session)
+    waiter = asyncio.create_task(client.fetch_alerts("WIZ038"))
+    await started.wait()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    release.set()
+    # Let the shielded fetch and its cleanup callback finish.
+    for _ in range(10):
+        await asyncio.sleep(0)
+    assert not client._inflight
+    assert await client.fetch_alerts("WIZ038") == {"features": []}
+    assert len(session.calls) == 1
