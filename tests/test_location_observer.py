@@ -71,3 +71,29 @@ async def test_stopped_observer_ignores_late_state_events():
     observer._schedule(state(latitude=44.26, longitude=-88.41))
     await asyncio.sleep(0)
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_failed_location_callback_can_retry_same_coordinates():
+    attempts = []
+    finished = asyncio.Event()
+
+    async def on_location(lat, lon):
+        attempts.append((lat, lon))
+        if len(attempts) == 1:
+            raise RuntimeError("Temporary NWS lookup failure")
+        finished.set()
+
+    hass = SimpleNamespace(async_create_task=asyncio.create_task)
+    observer = LocationObserver(hass, "device_tracker.phone", on_location)
+    fix = state(latitude=44.26, longitude=-88.41)
+    observer._schedule(fix)
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if observer._last_coordinates is None:
+            break
+    assert observer._last_coordinates is None
+    observer._schedule(fix)
+    await asyncio.wait_for(finished.wait(), timeout=1)
+    assert attempts == [(44.26, -88.41), (44.26, -88.41)]
+    await observer.async_stop()
