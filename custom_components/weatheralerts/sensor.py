@@ -357,7 +357,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
         # Build alerts list as before
         alerts = []
         for feature in data.get("features", []):
-            props = feature.get("properties", {})
+            props = dict(feature.get("properties") or {})
             props["endsExpires"] = (
                 props.get("expires", "null")
                 if props.get("ends") is None
