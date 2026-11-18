@@ -35,8 +35,8 @@ def _nws_code(value: Any, category: str) -> str:
     """Extract a NWS code only from the expected API URL category."""
     if not isinstance(value, str):
         return ""
-    parsed = urlparse(value)
     try:
+        parsed = urlparse(value)
         valid_origin = (
             parsed.scheme == "https"
             and parsed.hostname == "api.weather.gov"
