@@ -6,6 +6,7 @@ reported coordinates and resolves forecast zone and county via NWS /points.
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -41,7 +42,8 @@ def _nws_code(value: Any, category: str) -> str:
     if len(path) != 4 or path[:3] != ["", "zones", category]:
         return ""
     code = path[3].upper()
-    if len(code) != 6 or not code[:2].isalpha() or code[2] not in "CZ" or not code[3:].isdigit():
+    expected_marker = "Z" if category == "forecast" else "C"
+    if len(code) != 6 or not code[:2].isalpha() or code[2] != expected_marker or not code[3:].isdigit():
         return ""
     return code
 
@@ -50,6 +52,8 @@ class NwsPointResolver:
     """Resolve geographic coordinates, caching successes and sharing lookups."""
 
     def __init__(self, session: Any, *, cache_ttl: float = 3600.0) -> None:
+        if cache_ttl <= 0:
+            raise ValueError("cache_ttl must be positive")
         self._session = session
         self._cache_ttl = cache_ttl
         self._cache: dict[tuple[float, float], _CachedPoint] = {}
@@ -57,7 +61,7 @@ class NwsPointResolver:
 
     async def resolve(self, latitude: float, longitude: float, *, timeout: float = 20.0) -> NwsCoverage:
         lat, lon = float(latitude), float(longitude)
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
             raise ValueError("Invalid latitude or longitude")
         # Rounding is solely for lookup caching; the returned coverage is
         # always resolved from the coordinates used for the actual request.
@@ -74,7 +78,8 @@ class NwsPointResolver:
         finally:
             if task.done() and self._inflight.get(key) is task:
                 self._inflight.pop(key, None)
-        self._cache[key] = _CachedPoint(result, monotonic())
+        if self._inflight.get(key) is None:
+            self._cache[key] = _CachedPoint(result, monotonic())
         return result
 
     async def _fetch(self, lat: float, lon: float, timeout: float) -> NwsCoverage:
