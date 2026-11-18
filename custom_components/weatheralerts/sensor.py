@@ -195,6 +195,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
         self._location_observer = None
         self._coverage_lock = asyncio.Lock()
         self._location_available = True
+        self._location_epoch = 0
         _LOGGER.info("weatheralerts: WeatherAlertsCoordinator initialized for feedid: %s", feedid)
 
     async def async_start_location_tracking(self, source, resolver):
@@ -205,9 +206,12 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
 
         async def update_location(lat, lon):
             async with self._coverage_lock:
+                location_epoch = self._location_epoch
                 try:
                     coverage = await resolver.resolve(lat, lon)
                     new_feedid = coverage.feedid
+                    if location_epoch != self._location_epoch:
+                        return
                     if not new_feedid:
                         raise ValueError("NWS points lookup returned empty coverage")
                     if new_feedid == self.feedid:
@@ -218,7 +222,8 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                         try:
                             if was_unavailable or self.data is None or self.data.get("count") is None:
                                 await self.async_refresh()
-                                if (not self.last_update_success or not self.data or
+                                if (location_epoch != self._location_epoch or
+                                not self.last_update_success or not self.data or
                                         not self.data.get("error") or
                                         self.data["error"][0].get("type") != "success"):
                                     raise RuntimeError("NWS refresh failed after GPS recovery")
@@ -246,6 +251,8 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     )
                     if self.shared_client is not None:
                         await self.shared_client.fetch_alerts(new_feedid, timeout=timeout)
+                    if location_epoch != self._location_epoch:
+                        return
                     self.feedid = new_feedid
                     self._alert_tracking_list = []
                     self._last_good_data = None
@@ -265,7 +272,8 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                         self._alert_tracking_list = old_tracking
                         self._last_good_data = old_good
                         self._last_error = old_errors
-                        self._location_available = old_location_available
+                        if location_epoch == self._location_epoch:
+                            self._location_available = old_location_available
                         self.async_set_updated_data(old_data)
                         raise
                     self._location_available = True
@@ -278,6 +286,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     raise
 
         def location_unavailable():
+            self._location_epoch += 1
             self._location_available = False
             self._location_status = "location_unavailable"
             # Retain the last known alerts for diagnostics but do not claim
