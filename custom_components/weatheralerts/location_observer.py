@@ -5,7 +5,6 @@ import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -80,6 +79,9 @@ class LocationObserver:
         except asyncio.CancelledError:
             raise
         except Exception:
+            # Allow a subsequent state update with identical coordinates to retry.
+            if generation == self._generation:
+                self._last_coordinates = None
             _LOGGER.exception("WeatherAlerts location update failed for %s", self.entity_id)
         finally:
             if generation == self._generation:
@@ -90,6 +92,7 @@ class LocationObserver:
             self._unsubscribe()
             self._unsubscribe = None
         self._generation += 1
+        self._last_coordinates = None
         if self._task is not None:
             task = self._task
             self._task = None
