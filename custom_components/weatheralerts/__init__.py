@@ -9,6 +9,9 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers import config_validation as cv
 from homeassistant import config_entries
 
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .nws_client import SharedNwsAlertClient
 from .frontend import async_register_frontend
 
 from .const import (
@@ -91,7 +94,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    hass.data.setdefault(DOMAIN, {})
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if "shared_nws_client" not in domain_data:
+        domain_data["shared_nws_client"] = SharedNwsAlertClient(async_get_clientsession(hass))
     _LOGGER.debug("weatheralerts: forwarding setup to platforms: %s", PLATFORMS)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _LOGGER.debug("weatheralerts: platform setup complete")
