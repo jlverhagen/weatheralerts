@@ -37,12 +37,14 @@ class LocationObserver:
         hass: HomeAssistant,
         entity_id: str,
         on_location: LocationCallback,
+        on_unavailable: Callable[[], None] | None = None,
     ) -> None:
         if entity_id != "zone.home" and not entity_id.startswith("device_tracker."):
             raise ValueError("Location source must be zone.home or a device_tracker")
         self._hass = hass
         self.entity_id = entity_id
         self._on_location = on_location
+        self._on_unavailable = on_unavailable
         self._unsubscribe: Callable[[], None] | None = None
         self._unsubscribe_retry: Callable[[], None] | None = None
         self._task: asyncio.Task[None] | None = None
@@ -77,7 +79,16 @@ class LocationObserver:
         if self._stopped:
             return
         coordinates = coordinates_from_state(state)
-        if coordinates is None or coordinates == self._last_coordinates:
+        if coordinates is None:
+            if self._last_coordinates is not None:
+                self._last_coordinates = None
+                self._generation += 1
+                if self._task is not None:
+                    self._task.cancel()
+                if self._on_unavailable is not None:
+                    self._on_unavailable()
+            return
+        if coordinates == self._last_coordinates:
             return
         self._last_coordinates = coordinates
         self._generation += 1
