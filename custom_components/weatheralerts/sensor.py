@@ -291,12 +291,19 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                                 self.async_set_updated_data(stale)
                         raise
                     if location_epoch != self._location_epoch:
+                        # A new tracker event superseded this refresh. Do not
+                        # publish its alerts as belonging to the new location.
+                        self.feedid = old_feedid
+                        self._alert_tracking_list = old_tracking
+                        self._last_good_data = old_good
+                        self._last_error = old_errors
                         self._location_available = False
                         self._location_status = "location_unavailable"
-                        if self.data is not None:
-                            stale = dict(self.data)
+                        if old_data is not None:
+                            stale = dict(old_data)
                             stale["count"] = None
                             self.async_set_updated_data(stale)
+                        self.async_update_listeners()
                         return
                     self._location_available = True
                     self._location_status = "current"
