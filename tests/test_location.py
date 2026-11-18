@@ -98,3 +98,15 @@ async def test_cancelled_gps_waiter_does_not_leave_completed_lookup():
         await asyncio.sleep(0)
     assert not resolver._inflight
     assert (await resolver.resolve(44.26, -88.41)).feedid == "WIZ038,WIC087"
+
+
+def test_reject_noncanonical_nws_coverage_urls():
+    invalid = (
+        "https://api.weather.gov:444/zones/forecast/WIZ038",
+        "https://user@api.weather.gov/zones/forecast/WIZ038",
+        "https://api.weather.gov:bad/zones/forecast/WIZ038",
+        "https://api.weather.gov/zones/forecast/WIZ038?extra=1",
+        "https://api.weather.gov/zones/forecast/WIZ038#other",
+    )
+    for url in invalid:
+        assert _nws_code(url, "forecast") == ""
