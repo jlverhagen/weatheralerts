@@ -213,7 +213,6 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     if http_status == 200:
                         data = await response.json()
             if http_status != 200:
-            if http_status != 200:
                 error_msg = f"Possible API outage (status {http_status})"
                 current_entry = {
                     "type": "http_error",
