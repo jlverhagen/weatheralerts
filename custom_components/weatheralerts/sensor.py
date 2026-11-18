@@ -211,6 +211,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     if not new_feedid:
                         raise ValueError("NWS points lookup returned empty coverage")
                     if new_feedid == self.feedid:
+                        self._location_available = True
                         if self.data is not None and self.data.get("count") is None:
                             await self.async_refresh()
                         self._location_available = True
@@ -224,6 +225,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     old_good = self._last_good_data
                     old_errors = self._last_error
                     old_data = self.data
+                    old_location_available = self._location_available
                     # Verify the destination feed before changing the active
                     # coordinator state. A failed fetch must not erase old alerts.
                     timeout = next(
@@ -238,6 +240,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     self._alert_tracking_list = []
                     self._last_good_data = None
                     self._last_error = []
+                    self._location_available = True
                     try:
                         await self.async_refresh()
                         if (not self.last_update_success or
@@ -252,6 +255,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                         self._alert_tracking_list = old_tracking
                         self._last_good_data = old_good
                         self._last_error = old_errors
+                        self._location_available = old_location_available
                         self.async_set_updated_data(old_data)
                         raise
                     self._location_available = True
