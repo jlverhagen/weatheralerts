@@ -244,6 +244,8 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         _LOGGER.debug("weatheralerts: _async_update_data called for feedid: %s", self.feedid)
+        if not self.feedid:
+            return self.data or {"integration": "weatheralerts", "zone": "", "alerts": [], "count": 0, "alert_tracking": [], "error": []}
         update_error = []
 
         entry = next((e for e in self.hass.config_entries.async_entries(DOMAIN)
@@ -706,7 +708,7 @@ async def async_setup_entry(hass, entry, add_entities):
     update_interval_sec = entry.options.get(CONF_UPDATE_INTERVAL, entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
     update_interval = timedelta(seconds=update_interval_sec)
     shared_client = hass.data[DOMAIN]["shared_nws_client"]
-    location_mode = entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC)
+    location_mode = entry.options.get(CONF_LOCATION_MODE, entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC))
     coordinator = WeatherAlertsCoordinator(
         hass, session, feedid, entry.entry_id, update_interval=update_interval,
         shared_client=shared_client,
@@ -731,7 +733,7 @@ async def async_setup_entry(hass, entry, add_entities):
         sensor._dynamic_unique_id = f'weatheralerts_dynamic_{entry.entry_id}'
     add_entities([sensor], True)
     if location_mode in (LOCATION_MODE_HOME, LOCATION_MODE_TRACKER):
-        source = 'zone.home' if location_mode == LOCATION_MODE_HOME else entry.data.get(CONF_LOCATION_ENTITY)
+        source = 'zone.home' if location_mode == LOCATION_MODE_HOME else entry.options.get(CONF_LOCATION_ENTITY, entry.data.get(CONF_LOCATION_ENTITY))
         if source:
             await coordinator.async_start_location_tracking(source, hass.data[DOMAIN]['point_resolver'])
             hass.data[DOMAIN].setdefault('location_coordinators', {})[entry.entry_id] = coordinator
