@@ -806,8 +806,17 @@ async def async_setup_entry(hass, entry, add_entities):
     if marine_zones:
         parts += [z.strip() for z in marine_zones.split(",") if z.strip()]
     feedid = ",".join(parts)
+    location_mode = entry.options.get(CONF_LOCATION_MODE, entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC))
+    location_source = (
+        "zone.home" if location_mode == LOCATION_MODE_HOME
+        else entry.options.get(CONF_LOCATION_ENTITY, entry.data.get(CONF_LOCATION_ENTITY))
+        if location_mode == LOCATION_MODE_TRACKER else None
+    )
+    if location_mode != LOCATION_MODE_STATIC and not location_source:
+        raise ValueError("Dynamic WeatherAlerts entry has no location source")
     if not entity_name:
-        entity_name = f"weatheralerts_{_clean_for_entity_id(feedid)}"
+        identity = feedid if location_mode == LOCATION_MODE_STATIC else location_source
+        entity_name = f"weatheralerts_{_clean_for_entity_id(identity)}"
         _LOGGER.debug("weatheralerts: entity_name missing in setup_entry! Using fallback %s", entity_name)
     _LOGGER.debug(
         "weatheralerts: async_setup_entry (sensor.py): zone=%s, county=%s, marine_zones=%s, entity_name=%s, friendly_name=%s, feedid=%s",
@@ -817,7 +826,6 @@ async def async_setup_entry(hass, entry, add_entities):
     update_interval_sec = entry.options.get(CONF_UPDATE_INTERVAL, entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
     update_interval = timedelta(seconds=update_interval_sec)
     shared_client = hass.data[DOMAIN]["shared_nws_client"]
-    location_mode = entry.options.get(CONF_LOCATION_MODE, entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC))
     coordinator = WeatherAlertsCoordinator(
         hass, session, feedid, entry.entry_id, update_interval=update_interval,
         shared_client=shared_client,
@@ -842,10 +850,8 @@ async def async_setup_entry(hass, entry, add_entities):
         sensor._dynamic_unique_id = f'weatheralerts_dynamic_{entry.entry_id}'
     add_entities([sensor], True)
     if location_mode in (LOCATION_MODE_HOME, LOCATION_MODE_TRACKER):
-        source = 'zone.home' if location_mode == LOCATION_MODE_HOME else entry.options.get(CONF_LOCATION_ENTITY, entry.data.get(CONF_LOCATION_ENTITY))
-        if source:
-            await coordinator.async_start_location_tracking(source, hass.data[DOMAIN]['point_resolver'])
-            hass.data[DOMAIN].setdefault('location_coordinators', {})[entry.entry_id] = coordinator
+        await coordinator.async_start_location_tracking(location_source, hass.data[DOMAIN]['point_resolver'])
+        hass.data[DOMAIN].setdefault('location_coordinators', {})[entry.entry_id] = coordinator
     _LOGGER.info("weatheralerts: async_setup_entry (sensor.py): sensor entity added (%s)", entity_name)
 
 async def async_setup_platform(hass, config, add_entities, discovery_info=None):
