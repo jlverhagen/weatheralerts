@@ -209,6 +209,8 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     if not new_feedid:
                         raise ValueError("NWS points lookup returned empty coverage")
                     if new_feedid == self.feedid:
+                        if self.data is not None and self.data.get("count") is None:
+                            await self.async_refresh()
                         self._location_status = "current"
                         self.async_update_listeners()
                         return
