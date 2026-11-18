@@ -73,6 +73,12 @@ class NwsPointResolver:
         if task is None:
             task = asyncio.create_task(self._fetch(lat, lon, timeout))
             self._inflight[key] = task
+            # A superseded GPS event may cancel its waiter; clean up the
+            # completed lookup independently of that cancelled coroutine.
+            task.add_done_callback(
+                lambda completed, point=key: self._inflight.pop(point, None)
+                if self._inflight.get(point) is completed else None
+            )
         try:
             result = await asyncio.shield(task)
         finally:
