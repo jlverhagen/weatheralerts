@@ -279,7 +279,16 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                         self._last_error = old_errors
                         if location_epoch == self._location_epoch:
                             self._location_available = old_location_available
-                        self.async_set_updated_data(old_data)
+                            self.async_set_updated_data(old_data)
+                        else:
+                            # The tracker disappeared while this refresh was
+                            # running. Do not republish the old location's
+                            # known count over the unavailable callback.
+                            self._location_available = False
+                            if old_data is not None:
+                                stale = dict(old_data)
+                                stale["count"] = None
+                                self.async_set_updated_data(stale)
                         raise
                     if location_epoch != self._location_epoch:
                         self._location_available = False
