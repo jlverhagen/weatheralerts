@@ -48,8 +48,10 @@ class LocationObserver:
         self._task: asyncio.Task[None] | None = None
         self._last_coordinates: tuple[float, float] | None = None
         self._generation = 0
+        self._stopped = False
 
     async def async_start(self) -> None:
+        self._stopped = False
         if self._unsubscribe is not None:
             return
         self._unsubscribe = async_track_state_change_event(
@@ -63,7 +65,7 @@ class LocationObserver:
     @callback
     def _retry_if_needed(self, now) -> None:
         # Retry an unresolved location even if the GPS entity has not changed.
-        if self._last_coordinates is None:
+        if not self._stopped and self._last_coordinates is None:
             self._schedule(self._hass.states.get(self.entity_id))
 
     @callback
@@ -72,6 +74,8 @@ class LocationObserver:
 
     @callback
     def _schedule(self, state: State | None) -> None:
+        if self._stopped:
+            return
         coordinates = coordinates_from_state(state)
         if coordinates is None or coordinates == self._last_coordinates:
             return
@@ -99,6 +103,7 @@ class LocationObserver:
                 self._task = None
 
     async def async_stop(self) -> None:
+        self._stopped = True
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
