@@ -197,6 +197,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
     async def async_start_location_tracking(self, source, resolver):
         """Follow a HA location source without reloading the config entry."""
         self._location_status = "waiting_for_location"
+        self.async_update_listeners()
 
         async def update_location(lat, lon):
             try:
@@ -206,6 +207,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     raise ValueError("NWS points lookup returned empty coverage")
                 if new_feedid == self.feedid:
                     self._location_status = "current"
+                    self.async_update_listeners()
                     return
 
                 # Save the current view until a new feed is successfully loaded.
