@@ -36,7 +36,9 @@ def _nws_code(value: Any, category: str) -> str:
     if not isinstance(value, str):
         return ""
     parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.hostname != "api.weather.gov":
+    if (parsed.scheme != "https" or parsed.hostname != "api.weather.gov"
+            or parsed.username is not None or parsed.password is not None
+            or parsed.port not in (None, 443) or parsed.query or parsed.fragment):
         return ""
     path = parsed.path.rstrip("/").split("/")
     if len(path) != 4 or path[:3] != ["", "zones", category]:
