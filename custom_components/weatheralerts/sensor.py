@@ -214,6 +214,16 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                 old_good = self._last_good_data
                 old_errors = self._last_error
                 old_data = self.data
+                # Verify the destination feed before changing the active
+                # coordinator state. A failed fetch must not erase old alerts.
+                timeout = next(
+                    (e.options.get(CONF_API_TIMEOUT, e.data.get(CONF_API_TIMEOUT, DEFAULT_API_TIMEOUT))
+                     for e in self.hass.config_entries.async_entries(DOMAIN)
+                     if e.entry_id == self.config_entry_id),
+                    DEFAULT_API_TIMEOUT,
+                )
+                if self.shared_client is not None:
+                    await self.shared_client.fetch_alerts(new_feedid, timeout=timeout)
                 self.feedid = new_feedid
                 self._alert_tracking_list = []
                 self._last_good_data = None
@@ -224,7 +234,9 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                             not self.data or
                             self.data.get("error", [{}])[0].get("type") != "success"):
                         raise RuntimeError("New coverage refresh failed")
-                except Exception:
+                except BaseException:
+                    # CancelledError is not an Exception. Roll back even when
+                    # a new GPS event supersedes an in-progress refresh.
                     self.feedid = old_feedid
                     self._alert_tracking_list = old_tracking
                     self._last_good_data = old_good
