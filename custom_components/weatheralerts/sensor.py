@@ -18,7 +18,8 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
-from .nws_client import SharedNwsAlertClient, NwsHttpError
+from .nws_client import NwsHttpError
+from .location_observer import LocationObserver
 
 from .const import (
     DOMAIN,
@@ -42,6 +43,11 @@ from .const import (
     DEFAULT_API_TIMEOUT,
     DEFAULT_DEDUPLICATE_ALERTS,
     DEFAULT_DEDUPLICATE_ALERTS_BY_ID,
+    CONF_LOCATION_MODE,
+    CONF_LOCATION_ENTITY,
+    LOCATION_MODE_STATIC,
+    LOCATION_MODE_HOME,
+    LOCATION_MODE_TRACKER,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -184,7 +190,57 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
         self._last_good_data = None
         self._last_error = []
         self._alert_tracking_list = []
+        self._location_status = 'static'
+        self._location_observer = None
         _LOGGER.info("weatheralerts: WeatherAlertsCoordinator initialized for feedid: %s", feedid)
+
+    async def async_start_location_tracking(self, source, resolver):
+        """Follow a HA location source without reloading the config entry."""
+        self._location_status = "waiting_for_location"
+
+        async def update_location(lat, lon):
+            try:
+                coverage = await resolver.resolve(lat, lon)
+                new_feedid = coverage.feedid
+                if not new_feedid:
+                    raise ValueError("NWS points lookup returned empty coverage")
+                if new_feedid == self.feedid:
+                    self._location_status = "current"
+                    return
+
+                # Save the current view until a new feed is successfully loaded.
+                old_feedid = self.feedid
+                old_tracking = self._alert_tracking_list
+                old_good = self._last_good_data
+                old_data = self.data
+                self.feedid = new_feedid
+                self._alert_tracking_list = []
+                self._last_good_data = None
+                try:
+                    await self.async_refresh()
+                    if (not self.last_update_success or
+                            not self.data or
+                            self.data.get("error", [{}])[0].get("type") != "success"):
+                        raise RuntimeError("New coverage refresh failed")
+                except Exception:
+                    self.feedid = old_feedid
+                    self._alert_tracking_list = old_tracking
+                    self._last_good_data = old_good
+                    self.async_set_updated_data(old_data)
+                    raise
+                self._location_status = "current"
+            except Exception:
+                self._location_status = "resolution_failed"
+                _LOGGER.warning("WeatherAlerts location update failed for %s", source, exc_info=True)
+                raise
+
+        self._location_observer = LocationObserver(self.hass, source, update_location)
+        await self._location_observer.async_start()
+
+    async def async_stop_location_tracking(self):
+        if self._location_observer is not None:
+            await self._location_observer.async_stop()
+            self._location_observer = None
 
     async def _async_update_data(self):
         _LOGGER.debug("weatheralerts: _async_update_data called for feedid: %s", self.feedid)
@@ -539,6 +595,7 @@ class WeatherAlertsSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
         self.entity_id = f"sensor.{entity_name}"
         self._feedid = feedid
         self._attr_name = None
+        self._dynamic_unique_id = None
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
@@ -581,7 +638,7 @@ class WeatherAlertsSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
 
     @property
     def unique_id(self):
-        uid = f"weatheralerts_{self._feedid.replace(',', '').lower()}"
+        uid = self._dynamic_unique_id or f"weatheralerts_{self._feedid.replace(',', '').lower()}"
         _LOGGER.debug("weatheralerts: WeatherAlertsSensor unique_id: %s", uid)
         return uid
 
@@ -619,6 +676,7 @@ class WeatherAlertsSensor(CoordinatorEntity, RestoreEntity, SensorEntity):
                 "alerts": self.coordinator.data["alerts"],
                 "alert_tracking": self.coordinator.data.get("alert_tracking", []),
                 "error": self.coordinator.data.get("error", []),
+                "location_status": self.coordinator._location_status,
             }
         _LOGGER.debug("weatheralerts: WeatherAlertsSensor extra_state_attributes: coordinator.data is None")
         return {}
@@ -647,13 +705,22 @@ async def async_setup_entry(hass, entry, add_entities):
     update_interval_sec = entry.options.get(CONF_UPDATE_INTERVAL, entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL))
     update_interval = timedelta(seconds=update_interval_sec)
     shared_client = hass.data[DOMAIN]["shared_nws_client"]
+    location_mode = entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC)
     coordinator = WeatherAlertsCoordinator(
         hass, session, feedid, entry.entry_id, update_interval=update_interval,
         shared_client=shared_client,
     )
     await coordinator.async_config_entry_first_refresh()
     _LOGGER.debug("weatheralerts: async_setup_entry (sensor.py): finished first refresh")
-    add_entities([WeatherAlertsSensor(coordinator, entity_name, feedid)], True)
+    sensor = WeatherAlertsSensor(coordinator, entity_name, feedid)
+    if location_mode != LOCATION_MODE_STATIC:
+        sensor._dynamic_unique_id = f'weatheralerts_dynamic_{entry.entry_id}'
+    add_entities([sensor], True)
+    if location_mode in (LOCATION_MODE_HOME, LOCATION_MODE_TRACKER):
+        source = 'zone.home' if location_mode == LOCATION_MODE_HOME else entry.data.get(CONF_LOCATION_ENTITY)
+        if source:
+            await coordinator.async_start_location_tracking(source, hass.data[DOMAIN]['point_resolver'])
+            hass.data[DOMAIN].setdefault('location_coordinators', {})[entry.entry_id] = coordinator
     _LOGGER.info("weatheralerts: async_setup_entry (sensor.py): sensor entity added (%s)", entity_name)
 
 async def async_setup_platform(hass, config, add_entities, discovery_info=None):
