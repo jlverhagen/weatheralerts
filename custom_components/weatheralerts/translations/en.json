@@ -2,10 +2,12 @@
   "config": {
     "step": {
       "user": {
-        "title": "Location for Weather Alerts",
+        "title": "Choose Weather Alert Location Source",
         "data": {
-          "latitude": "Latitude",
-          "longitude": "Longitude"
+          "location_mode": "Location source"
+        },
+        "data_description": {
+          "location_mode": "Static: fixed NWS zones; Home: follow zone.home; Tracker: follow a mobile device tracker"
         }
       },
       "zone": {
@@ -24,6 +26,19 @@
           "deduplicate_alerts_by_id": "Remove duplicate alerts with identical NWS alert IDs (recommended)",
           "deduplicate_alerts": "Remove duplicate alerts with identical descriptions (not recommended)"
         }
+      },
+      "static_location": {
+        "title": "Coordinates for Static Weather Alerts",
+        "data": {
+          "latitude": "Latitude",
+          "longitude": "Longitude"
+        }
+      },
+      "tracker": {
+        "title": "Choose Mobile Device Tracker",
+        "data": {
+          "location_entity": "Device tracker"
+        }
       }
     },
     "error": {
@@ -36,7 +51,9 @@
       "invalid_api_timeout_range": "Timeout must be between 10 and 60 seconds.",
       "invalid_api_timeout_buffer": "API timeout must be at least 5 seconds less than the update interval.",
       "api_outage": "Could not reach the National Weather Service API. Please try again.",
-      "unknown_error": "An unknown error has occurred."
+      "unknown_error": "An unknown error has occurred.",
+      "invalid_location_entity": "Select a valid device tracker",
+      "no_trackers": "No device trackers are currently available"
     }
   },
   "options": {
