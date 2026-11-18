@@ -268,7 +268,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         _LOGGER.debug("weatheralerts: _async_update_data called for feedid: %s", self.feedid)
         if not self.feedid:
-            return self.data or {"integration": "weatheralerts", "zone": "", "alerts": [], "count": 0, "alert_tracking": [], "error": []}
+            return self.data or {"integration": "weatheralerts", "zone": "", "alerts": [], "count": None, "alert_tracking": [], "error": []}
         update_error = []
 
         entry = next((e for e in self.hass.config_entries.async_entries(DOMAIN)
@@ -743,7 +743,7 @@ async def async_setup_entry(hass, entry, add_entities):
         # empty NWS feed before the first GPS fix has resolved.
         coordinator.async_set_updated_data({
             "alerts": [],
-            "count": 0,
+            "count": None,
             "alert_stats": {},
             "integration": "weatheralerts",
             "zone": "",
