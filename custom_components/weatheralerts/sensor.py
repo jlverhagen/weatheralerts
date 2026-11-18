@@ -280,8 +280,16 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     self._location_status = "current"
                     self.async_update_listeners()
                 except Exception:
-                    self._location_status = "resolution_failed"
-                    self.async_update_listeners()
+                    # An unresolved GPS fix must not allow scheduled polling
+                    # to advertise alerts for the previous location as current.
+                    if location_epoch == self._location_epoch:
+                        self._location_available = False
+                        self._location_status = "resolution_failed"
+                        if self.data is not None:
+                            stale = dict(self.data)
+                            stale["count"] = None
+                            self.async_set_updated_data(stale)
+                        self.async_update_listeners()
                     _LOGGER.warning("WeatherAlerts location update failed for %s", source, exc_info=True)
                     raise
 
