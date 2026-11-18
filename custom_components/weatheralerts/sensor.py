@@ -194,11 +194,13 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
         self._location_status = 'static'
         self._location_observer = None
         self._coverage_lock = asyncio.Lock()
+        self._location_available = True
         _LOGGER.info("weatheralerts: WeatherAlertsCoordinator initialized for feedid: %s", feedid)
 
     async def async_start_location_tracking(self, source, resolver):
         """Follow a HA location source without reloading the config entry."""
         self._location_status = "waiting_for_location"
+        self._location_available = False
         self.async_update_listeners()
 
         async def update_location(lat, lon):
@@ -211,6 +213,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     if new_feedid == self.feedid:
                         if self.data is not None and self.data.get("count") is None:
                             await self.async_refresh()
+                        self._location_available = True
                         self._location_status = "current"
                         self.async_update_listeners()
                         return
@@ -251,6 +254,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                         self._last_error = old_errors
                         self.async_set_updated_data(old_data)
                         raise
+                    self._location_available = True
                     self._location_status = "current"
                     self.async_update_listeners()
                 except Exception:
@@ -260,6 +264,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                     raise
 
         def location_unavailable():
+            self._location_available = False
             self._location_status = "location_unavailable"
             # Retain the last known alerts for diagnostics but do not claim
             # their count represents the device's current position.
@@ -281,7 +286,7 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         _LOGGER.debug("weatheralerts: _async_update_data called for feedid: %s", self.feedid)
-        if not self.feedid:
+        if not self.feedid or not self._location_available:
             return self.data or {"integration": "weatheralerts", "zone": "", "alerts": [], "count": None, "alert_tracking": [], "error": []}
         update_error = []
 
