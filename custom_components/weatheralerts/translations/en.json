@@ -82,6 +82,12 @@
           "new_event_type": "New Event Type",
           "new_icon_def": "New Icon Definition"
         }
+      },
+      "dynamic_source": {
+        "title": "Mobile Location Source",
+        "data": {
+          "location_entity": "Device tracker to follow"
+        }
       }
     },
     "error": {
@@ -92,7 +98,8 @@
       "invalid_api_timeout_range": "Timeout must be between 10 and 60 seconds.",
       "invalid_api_timeout_buffer": "API timeout must be at least 5 seconds less than the update interval.",
       "api_outage": "Could not reach the National Weather Service API. Please try again.",
-      "unknown_error": "An unknown error has occurred."
+      "unknown_error": "An unknown error has occurred.",
+      "invalid_location_entity": "Choose an available device tracker"
     }
   }
 }
