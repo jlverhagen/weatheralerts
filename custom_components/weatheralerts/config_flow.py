@@ -531,7 +531,42 @@ class WeatheralertsOptionsFlow(config_entries.OptionsFlow):
             if key not in self.updated_options and key in entry.data:
                 self.updated_options[key] = entry.data[key]
 
+    async def async_step_dynamic_source(self, user_input=None):
+        """Edit the tracked entity without requiring a fixed NWS zone."""
+        mode = self.updated_options.get(
+            CONF_LOCATION_MODE,
+            self._entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC),
+        )
+        if mode == LOCATION_MODE_HOME:
+            self.updated_options[CONF_LOCATION_ENTITY] = "zone.home"
+            return await self.async_step_update_options()
+
+        trackers = sorted(state.entity_id for state in self.hass.states.async_all("device_tracker"))
+        current = self.updated_options.get(
+            CONF_LOCATION_ENTITY, self._entry.data.get(CONF_LOCATION_ENTITY, "")
+        )
+        if current and current not in trackers:
+            trackers.append(current)
+        errors = {}
+        if user_input is not None:
+            source = user_input[CONF_LOCATION_ENTITY]
+            if not source.startswith("device_tracker.") or self.hass.states.get(source) is None:
+                errors[CONF_LOCATION_ENTITY] = "invalid_location_entity"
+            else:
+                self.updated_options[CONF_LOCATION_ENTITY] = source
+                return await self.async_step_update_options()
+        schema = vol.Schema({
+            vol.Required(CONF_LOCATION_ENTITY, default=current):
+                vol.In(sorted(trackers)) if trackers else str,
+        })
+        return self.async_show_form(
+            step_id="dynamic_source", data_schema=schema, errors=errors
+        )
+
     async def async_step_init(self, user_input=None):
+        if self._entry.data.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC) != LOCATION_MODE_STATIC:
+            return await self.async_step_dynamic_source()
+
         errors = {}
         schema = vol.Schema({
             vol.Required(CONF_ZONE): str,
