@@ -228,10 +228,14 @@ class WeatherAlertsCoordinator(DataUpdateCoordinator):
                                         self.data["error"][0].get("type") != "success"):
                                     raise RuntimeError("NWS refresh failed after GPS recovery")
                         except BaseException:
-                            # A newer tracker event may already have invalidated
-                            # this fix. Never restore its availability here.
-                            if location_epoch == self._location_epoch:
-                                self._location_available = False
+                            # The refresh may have published data before a
+                            # cancellation or a failed recovery was noticed.
+                            # Do not leave a known count for an invalid fix.
+                            self._location_available = False
+                            if self.data is not None:
+                                stale = dict(self.data)
+                                stale["count"] = None
+                                self.async_set_updated_data(stale)
                             raise
                         if location_epoch != self._location_epoch:
                             # A completed refresh can race with the tracker
