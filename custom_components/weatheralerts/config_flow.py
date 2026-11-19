@@ -331,7 +331,7 @@ class WeatheralertsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             )
                             errors["base"] = "unknown_error"
 
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="static_location", data_schema=schema, errors=errors)
 
     async def async_step_zone(self, user_input=None):
         errors = {}
