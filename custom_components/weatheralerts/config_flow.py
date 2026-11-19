@@ -160,7 +160,18 @@ class WeatheralertsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         if user_input is not None:
-            mode = user_input[CONF_LOCATION_MODE]
+            # Older/partially restored flow submissions may omit the new mode
+            # field. Keep the pre-existing static setup path working.
+            mode = user_input.get(CONF_LOCATION_MODE, LOCATION_MODE_STATIC)
+            if mode not in (LOCATION_MODE_STATIC, LOCATION_MODE_HOME, LOCATION_MODE_TRACKER):
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema({
+                        vol.Required(CONF_LOCATION_MODE, default=LOCATION_MODE_STATIC):
+                            vol.In([LOCATION_MODE_STATIC, LOCATION_MODE_HOME, LOCATION_MODE_TRACKER]),
+                    }),
+                    errors={CONF_LOCATION_MODE: "invalid_location_mode"},
+                )
             self._location_mode = mode
             if mode == LOCATION_MODE_STATIC:
                 return await self.async_step_static_location()
